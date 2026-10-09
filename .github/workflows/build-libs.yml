@@ -1,4 +1,4 @@
-name: Build AnyPS5 Windows Libraries (GCC)
+name: Build AnyPS5 Windows Libraries (GCC 15.2)
 
 on:
   workflow_dispatch:
@@ -10,60 +10,63 @@ jobs:
   libraries:
     runs-on: windows-latest
     steps:
-      - name: Checkout source
+      - name: Checkout source with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Switch from Clang64: AnyPS5 currently uses GCC-only
-      # __builtin_sysv_va_list / __builtin_sysv_va_start builtins.
-      # Try MINGW64's exception runtime instead of UCRT64 GCC 16.
-      - name: Install MinGW64 GCC toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            git
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-binutils
-
-      - name: Configure
-        shell: msys2 {0}
+      - name: Download exact WinLibs toolchain required by AnyPS5
+        shell: pwsh
         run: |
-          g++ --version
-          cmake -S . -B build-libs -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=gcc \
-            -DCMAKE_CXX_COMPILER=g++ \
-            -DBUILD_TESTING=OFF
+          $ErrorActionPreference = "Stop"
+          $archive = "$env:RUNNER_TEMP\winlibs-gcc15.zip"
+          $url = "https://github.com/brechtsanders/winlibs_mingw/releases/download/15.2.0posix-14.0.0-ucrt-r7/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip"
+          & curl.exe --fail --location --retry 3 --output $archive $url
+          if ($LASTEXITCODE -ne 0) { throw "WinLibs download failed" }
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP\winlibs" -Force
+          $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
+          if (!(Test-Path "$bin\g++.exe")) { throw "GCC 15.2 not found at $bin" }
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Configure with pinned compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
+          $env:PATH = "$bin;$env:PATH"
+          & "$bin\g++.exe" --version
+          & "$bin\cmake.exe" -S . -B build-libs -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_COMPILER=$bin\gcc.exe" "-DCMAKE_CXX_COMPILER=$bin\g++.exe" -DBUILD_TESTING=OFF
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
       - name: Build runtime libraries
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cmake --build build-libs --target libs --parallel 4
+          $ErrorActionPreference = "Stop"
+          $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
+          $env:PATH = "$bin;$env:PATH"
+          & "$bin\cmake.exe" --build build-libs --target libs --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw "Library build failed" }
 
-      - name: Package runtime libraries
-        shell: msys2 {0}
+      - name: Package libraries and runtime DLLs
+        shell: pwsh
         run: |
-          set -e
-          mkdir -p dist/libs
-          cp build-libs/core/libs/libs/*.prx dist/libs/
-          for dll in /mingw64/bin/libgcc_s_seh-1.dll /mingw64/bin/libstdc++-6.dll /mingw64/bin/libwinpthread-1.dll; do
-            if test -f "$dll"; then cp "$dll" dist/libs/; fi
-          done
-          test -f dist/libs/libSceHttp2.prx
-          test -f dist/libs/libc.prx
-          ls -lh dist/libs/libSceHttp2.prx
-          echo "Total packaged files:"
-          find dist/libs -maxdepth 1 -type f | wc -l
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force dist/libs | Out-Null
+          Copy-Item build-libs/core/libs/libs/*.prx dist/libs/
+          $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
+          foreach ($name in @("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll")) {
+            $from = Join-Path $bin $name
+            if (Test-Path $from) { Copy-Item $from dist/libs/ }
+          }
+          foreach ($name in @("libSceHttp2.prx", "libc.prx")) {
+            if (!(Test-Path "dist/libs/$name")) { throw "Missing $name" }
+          }
+          Get-ChildItem dist/libs | Measure-Object | Select-Object -ExpandProperty Count
 
-      - name: Upload Windows libraries
+      - name: Upload Windows runtime libraries
         uses: actions/upload-artifact@v4
         with:
-          name: AnyPS5-Windows-Libraries-GCC
+          name: AnyPS5-Windows-Libraries-GCC15
           path: dist/
           if-no-files-found: error
           retention-days: 7

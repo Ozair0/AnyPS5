@@ -1,0 +1,69 @@
+name: Build AnyPS5 Windows Libraries (Clang)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-libs.yml'
+
+jobs:
+  libraries:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Use a different runtime/unwinder from the GCC 16 UCRT64
+      # toolchain that failed with __gxx_personality_sj0 and _Unwind_SjLj_*.
+      - name: Install Clang64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-llvm
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          clang++ --version
+          cmake -S . -B build-libs -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DBUILD_TESTING=OFF
+
+      - name: Build runtime libraries
+        shell: msys2 {0}
+        run: |
+          cmake --build build-libs --target libs --parallel 4
+
+      - name: Package runtime libraries
+        shell: msys2 {0}
+        run: |
+          set -e
+          mkdir -p dist/libs
+          cp build-libs/core/libs/libs/*.prx dist/libs/
+          for dll in /clang64/bin/libc++.dll /clang64/bin/libunwind.dll /clang64/bin/libwinpthread-1.dll; do
+            if test -f "$dll"; then cp "$dll" dist/libs/; fi
+          done
+          test -f dist/libs/libSceHttp2.prx
+          test -f dist/libs/libc.prx
+          ls -lh dist/libs/libSceHttp2.prx
+          echo "Total packaged files:"
+          find dist/libs -maxdepth 1 -type f | wc -l
+
+      - name: Upload Windows libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyPS5-Windows-Libraries-Clang
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

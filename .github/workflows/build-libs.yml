@@ -1,4 +1,4 @@
-name: Build AnyPS5 Windows Libraries (Clang)
+name: Build AnyPS5 Windows Libraries (GCC)
 
 on:
   workflow_dispatch:
@@ -15,29 +15,29 @@ jobs:
         with:
           submodules: recursive
 
-      # Use a different runtime/unwinder from the GCC 16 UCRT64
-      # toolchain that failed with __gxx_personality_sj0 and _Unwind_SjLj_*.
-      - name: Install Clang64 toolchain
+      # Switch from Clang64: AnyPS5 currently uses GCC-only
+      # __builtin_sysv_va_list / __builtin_sysv_va_start builtins.
+      # Try MINGW64's exception runtime instead of UCRT64 GCC 16.
+      - name: Install MinGW64 GCC toolchain
         uses: msys2/setup-msys2@v2
         with:
-          msystem: CLANG64
+          msystem: MINGW64
           update: true
           install: >-
             git
-            mingw-w64-clang-x86_64-clang
-            mingw-w64-clang-x86_64-cmake
-            mingw-w64-clang-x86_64-ninja
-            mingw-w64-clang-x86_64-llvm
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-binutils
 
       - name: Configure
         shell: msys2 {0}
         run: |
-          clang++ --version
+          g++ --version
           cmake -S . -B build-libs -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
             -DBUILD_TESTING=OFF
 
       - name: Build runtime libraries
@@ -51,7 +51,7 @@ jobs:
           set -e
           mkdir -p dist/libs
           cp build-libs/core/libs/libs/*.prx dist/libs/
-          for dll in /clang64/bin/libc++.dll /clang64/bin/libunwind.dll /clang64/bin/libwinpthread-1.dll; do
+          for dll in /mingw64/bin/libgcc_s_seh-1.dll /mingw64/bin/libstdc++-6.dll /mingw64/bin/libwinpthread-1.dll; do
             if test -f "$dll"; then cp "$dll" dist/libs/; fi
           done
           test -f dist/libs/libSceHttp2.prx
@@ -63,7 +63,7 @@ jobs:
       - name: Upload Windows libraries
         uses: actions/upload-artifact@v4
         with:
-          name: AnyPS5-Windows-Libraries-Clang
+          name: AnyPS5-Windows-Libraries-GCC
           path: dist/
           if-no-files-found: error
           retention-days: 7

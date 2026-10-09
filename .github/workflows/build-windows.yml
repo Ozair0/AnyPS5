@@ -1,0 +1,59 @@
+
+name: Build AnyPS5 Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install MSYS2 and build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF
+
+      - name: Build relinker and libraries
+        shell: msys2 {0}
+        run: |
+          cmake --build build --target relinker libs --parallel 4
+
+      - name: Collect Windows binaries
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist/libs
+          cp build/core/relinker/relinker.exe dist/
+          cp build/core/libs/libs/*.prx dist/libs/
+          find build/core/libs/libs -maxdepth 1 -name '*.dll' \
+            -exec cp {} dist/libs/ \;
+          echo "=== Windows relinker ==="
+          ls -lh dist/relinker.exe
+          echo "=== Runtime libraries ==="
+          ls dist/libs/ | wc -l
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyPS5-Windows-Build
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

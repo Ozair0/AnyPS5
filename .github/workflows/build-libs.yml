@@ -28,6 +28,17 @@ jobs:
           if (!(Test-Path "$bin\g++.exe")) { throw "GCC 15.2 not found at $bin" }
           $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
+      - name: Prepare trusted CA bundle for CMake downloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundle = Join-Path $env:RUNNER_TEMP "cacert.pem"
+          Invoke-WebRequest -Uri "https://curl.se/ca/cacert.pem" -OutFile $bundle
+          if (!(Test-Path $bundle) -or (Get-Item $bundle).Length -lt 100000) { throw "CA bundle download invalid" }
+          "CMAKE_TLS_CAINFO=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SSL_CERT_FILE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CURL_CA_BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure with pinned compiler
         shell: pwsh
         run: |

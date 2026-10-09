@@ -1,5 +1,4 @@
-
-name: Build AnyPS5 Windows
+name: Build AnyPS5 Windows Relinker
 
 on:
   workflow_dispatch:
@@ -7,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -32,28 +30,22 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF
 
-      - name: Build relinker and libraries
+      - name: Build relinker only
         shell: msys2 {0}
         run: |
-          cmake --build build --target relinker libs --parallel 4
+          cmake --build build --target relinker --parallel 4
 
-      - name: Collect Windows binaries
+      - name: Collect relinker
         shell: msys2 {0}
         run: |
-          mkdir -p dist/libs
-          cp build/core/relinker/relinker.exe dist/
-          cp build/core/libs/libs/*.prx dist/libs/
-          find build/core/libs/libs -maxdepth 1 -name '*.dll' \
-            -exec cp {} dist/libs/ \;
-          echo "=== Windows relinker ==="
+          mkdir -p dist
+          cp build/core/relinker/relinker.exe dist/relinker.exe
           ls -lh dist/relinker.exe
-          echo "=== Runtime libraries ==="
-          ls dist/libs/ | wc -l
 
-      - name: Upload Windows build
+      - name: Upload Windows relinker
         uses: actions/upload-artifact@v4
         with:
-          name: AnyPS5-Windows-Build
-          path: dist/
+          name: AnyPS5-Windows-Relinker
+          path: dist/relinker.exe
           if-no-files-found: error
           retention-days: 7

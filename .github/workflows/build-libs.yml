@@ -1,4 +1,4 @@
-name: Build AnyPS5 Windows Libraries (GCC 15.2)
+name: Build GOW AnyPS5 Runtime and Relinker
 
 on:
   workflow_dispatch:
@@ -10,9 +10,11 @@ jobs:
   libraries:
     runs-on: windows-latest
     steps:
-      - name: Checkout source with submodules
+      - name: Checkout game-specific AnyPS5 fork with submodules
         uses: actions/checkout@v4
         with:
+          repository: nahshongraham97/AnyPS5
+          ref: main
           submodules: recursive
 
       - name: Download exact WinLibs toolchain required by AnyPS5
@@ -49,13 +51,13 @@ jobs:
           & "$bin\cmake.exe" -S . -B build-libs -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_COMPILER=$bin\gcc.exe" "-DCMAKE_CXX_COMPILER=$bin\g++.exe" -DBUILD_TESTING=OFF
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
-      - name: Build runtime libraries
+      - name: Build game-specific runtime and relinker
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
           $env:PATH = "$bin;$env:PATH"
-          & "$bin\cmake.exe" --build build-libs --target libs --parallel 4
+          & "$bin\cmake.exe" --build build-libs --target relinker libs --parallel 4
           if ($LASTEXITCODE -ne 0) { throw "Library build failed" }
 
       - name: Package libraries and runtime DLLs
@@ -64,20 +66,22 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force dist/libs | Out-Null
           Copy-Item build-libs/core/libs/libs/*.prx dist/libs/
+          Copy-Item build-libs/core/relinker/relinker.exe dist/relinker.exe
           $bin = "$env:RUNNER_TEMP\winlibs\mingw64\bin"
           foreach ($name in @("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll")) {
             $from = Join-Path $bin $name
             if (Test-Path $from) { Copy-Item $from dist/libs/ }
           }
-          foreach ($name in @("libSceHttp2.prx", "libc.prx")) {
+          foreach ($name in @("libSceHttp2.prx", "libc.prx", "libkernel.prx")) {
             if (!(Test-Path "dist/libs/$name")) { throw "Missing $name" }
           }
+          if (!(Test-Path 'dist/relinker.exe')) { throw 'Missing relinker.exe' }
           Get-ChildItem dist/libs | Measure-Object | Select-Object -ExpandProperty Count
 
       - name: Upload Windows runtime libraries
         uses: actions/upload-artifact@v4
         with:
-          name: AnyPS5-Windows-Libraries-GCC15
+          name: AnyPS5-GOW-Windows-Matched-Build
           path: dist/
           if-no-files-found: error
           retention-days: 7
